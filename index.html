@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vehicle Loading → Google Drive</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f7;color:#17202a;font-family:Arial,sans-serif}
+.app{max-width:720px;margin:auto;padding:18px}.card{background:#fff;border-radius:18px;padding:20px;margin-bottom:16px;box-shadow:0 5px 22px #00000010}
+h1{margin:0 0 5px;font-size:27px}.sub,.small{color:#667085}.small{font-size:13px;line-height:1.5}
+label{display:block;font-weight:700;margin:14px 0 7px}input{width:100%;padding:13px;border:1px solid #d0d5dd;border-radius:11px;font-size:16px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}button{width:100%;padding:13px;border:0;border-radius:11px;font-size:16px;font-weight:700;cursor:pointer;margin-top:10px}
+.blue{background:#1d4ed8;color:white}.green{background:#16803c;color:white}.gray{background:#eef2f6;color:#17202a}.red{background:#d92d20;color:#fff}
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.photo{position:relative;aspect-ratio:1;overflow:hidden;border-radius:10px;background:#eee}.photo img{width:100%;height:100%;object-fit:cover}.photo button{position:absolute;right:5px;top:5px;width:30px;height:30px;padding:0;margin:0;border-radius:50%}
+.status{display:none;margin-top:12px;padding:12px;border-radius:10px;background:#eef2f6;white-space:pre-wrap}
+.ok{background:#e8f7ee;color:#116329}.err{background:#fdecec;color:#9b1c1c}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="card">
+<h1>🚚 VEHICLE LOADING</h1>
+<div class="sub">Capture loading photos and save the PDF directly to Google Drive.</div>
+<label>Vehicle Number</label><input id="vehicle" placeholder="GJ03AB1234">
+<label>Brand</label><input id="brand" placeholder="Rotech Healthcare">
+<div class="row">
+<div><label>Date</label><input id="date" type="date"></div>
+<div><label>Time</label><input id="time" type="time"></div>
+</div>
+<label>Remarks (optional)</label><input id="remarks" placeholder="Loading completed">
+</div>
+
+<div class="card">
+<h2>📷 Photos</h2>
+<div class="small">Add as many loading photos as required. Photos remain in the order you add them.</div>
+<input id="camera" type="file" accept="image/*" capture="environment" multiple hidden>
+<button class="blue" onclick="document.getElementById('camera').click()">📷 TAKE / ADD PHOTOS</button>
+<div id="count" class="small" style="margin-top:10px">0 photos added</div>
+<div id="photos" class="photos"></div>
+</div>
+
+<div class="card">
+<button class="green" onclick="generateAndUpload()">☁️ GENERATE PDF & SAVE TO GOOGLE DRIVE</button>
+<button class="gray" onclick="generateLocal()">📥 DOWNLOAD PDF ONLY</button>
+<button class="gray" onclick="clearAll()">CLEAR FORM</button>
+<div id="status" class="status"></div>
+</div>
+
+<div class="card">
+<h3>Google Drive</h3>
+<div class="small">
+First use: Google will ask you to authorize this app. The app requests the Drive permission needed to create files it uploads. No Google password is entered into this app.
+</div>
+</div>
+</div>
+
+<script>
+const CLIENT_ID="903971648155-imqnkah7umenkkbq83iohgts4rgbik15.apps.googleusercontent.com";
+const SCOPES="https://www.googleapis.com/auth/drive.file";
+const {jsPDF}=window.jspdf;
+let tokenClient=null, accessToken=null, images=[];
+const now=new Date();
+document.getElementById("date").value=now.toISOString().slice(0,10);
+document.getElementById("time").value=now.toTimeString().slice(0,5);
+
+document.getElementById("camera").addEventListener("change", e=>{
+  [...e.target.files].forEach(file=>{
+    const r=new FileReader();
+    r.onload=ev=>{images.push(ev.target.result);render()};
+    r.readAsDataURL(file);
+  });
+  e.target.value="";
+});
+
+function render(){
+  const box=document.getElementById("photos"); box.innerHTML="";
+  images.forEach((src,i)=>{
+    const d=document.createElement("div"); d.className="photo";
+    d.innerHTML=`<img src="${src}"><button class="red" onclick="removePhoto(${i})">×</button>`;
+    box.appendChild(d);
+  });
+  document.getElementById("count").textContent=`${images.length} photo${images.length===1?"":"s"} added`;
+}
+function removePhoto(i){images.splice(i,1);render()}
+function status(msg,ok=false){
+ const s=document.getElementById("status");s.style.display="block";s.className="status "+(ok?"ok":"err");s.textContent=msg;
+}
+function validate(){
+ const vehicle=document.getElementById("vehicle").value.trim(),brand=document.getElementById("brand").value.trim();
+ if(!vehicle||!brand){status("Enter Vehicle Number and Brand.");return false}
+ if(!images.length){status("Add at least one photo.");return false}
+ return true;
+}
+function initGoogle(){
+ if(!window.google?.accounts?.oauth2){setTimeout(initGoogle,300);return}
+ tokenClient=google.accounts.oauth2.initTokenClient({
+   client_id:CLIENT_ID,scope:SCOPES,
+   callback:(resp)=>{ if(resp.error){status("Google authorization failed: "+resp.error);return}
+      accessToken=resp.access_token; uploadCurrentPDF();
+   }
+ });
+}
+window.addEventListener("load",initGoogle);
+
+async function buildPDF(){
+ const vehicle=document.getElementById("vehicle").value.trim();
+ const brand=document.getElementById("brand").value.trim();
+ const date=document.getElementById("date").value;
+ const time=document.getElementById("time").value;
+ const remarks=document.getElementById("remarks").value.trim();
+ const pdf=new jsPDF("p","mm","a4"), W=210,m=14;
+ pdf.setFont("helvetica","bold");pdf.setFontSize(19);
+ pdf.text("VEHICLE LOADING",W/2,18,{align:"center"});
+ pdf.setFont("helvetica","normal");pdf.setFontSize(10);
+ pdf.text(`Brand: ${brand}`,m,30);pdf.text(`Vehicle No.: ${vehicle}`,m,37);
+ pdf.text(`Date: ${date}`,m,44);pdf.text(`Time: ${time}`,m,51);
+ if(remarks)pdf.text(`Remarks: ${remarks}`,m,58);
+ let y=remarks?68:62;
+ for(let i=0;i<images.length;i++){
+   const im=await loadImg(images[i]);
+   if(y>250){pdf.addPage();y=16}
+   const maxW=182,maxH=108;
+   let w=im.naturalWidth,h=im.naturalHeight,s=Math.min(maxW/w,maxH/h);w*=s;h*=s;
+   pdf.setFontSize(9);pdf.text(`Photo ${i+1}`,m,y);
+   pdf.addImage(images[i],"JPEG",m,y+3,w,h);
+   y+=h+13;
+ }
+ return {pdf,filename:`Vehicle Loading - ${safe(brand)} - ${safe(vehicle)} - ${date}.pdf`};
+}
+function safe(s){return s.replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"")}
+function loadImg(src){return new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=src})}
+
+async function generateLocal(){
+ if(!validate())return;
+ const {pdf,filename}=await buildPDF();pdf.save(filename);status("PDF downloaded successfully.",true);
+}
+async function generateAndUpload(){
+ if(!validate())return;
+ status("Preparing PDF...");
+ try{
+   const built=await buildPDF();
+   window.currentPDF=built;
+   if(!tokenClient){status("Google sign-in is still loading. Wait a moment and try again.");return}
+   if(accessToken) await uploadCurrentPDF(); else tokenClient.requestAccessToken({prompt:"consent"});
+ }catch(e){status("Could not create PDF: "+e.message)}
+}
+async function uploadCurrentPDF(){
+ try{
+   status("Uploading PDF to Google Drive...");
+   const {pdf,filename}=window.currentPDF;
+   const blob=pdf.output("blob");
+   const form=new FormData();
+   const metadata={name:filename,mimeType:"application/pdf"};
+   form.append("metadata",new Blob([JSON.stringify(metadata)],{type:"application/json"}));
+   form.append("file",blob,filename);
+   const res=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",{
+     method:"POST",headers:{Authorization:"Bearer "+accessToken},body:form
+   });
+   const data=await res.json();
+   if(!res.ok){
+     if(data.error?.status==="UNAUTHENTICATED"||data.error?.code===401){accessToken=null;status("Google authorization expired. Tap the button again.");return}
+     throw new Error(data.error?.message||"Google Drive upload failed");
+   }
+   status(`✅ SAVED TO GOOGLE DRIVE\n${data.name}\n\nYou can now find it in Google Drive → Recent.`,true);
+ }catch(e){status("Upload failed: "+e.message)}
+}
+function clearAll(){
+ images=[];render();document.getElementById("vehicle").value="";document.getElementById("brand").value="";document.getElementById("remarks").value="";
+ const d=new Date();document.getElementById("date").value=d.toISOString().slice(0,10);document.getElementById("time").value=d.toTimeString().slice(0,5);
+ document.getElementById("status").style.display="none";
+}
+</script>
+</body>
+</html>

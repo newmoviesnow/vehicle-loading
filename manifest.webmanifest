@@ -1,0 +1,23 @@
+{
+  "name": "Vehicle Loading",
+  "short_name": "Vehicle Loading",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#1457d9",
+  "description": "Vehicle loading photo and Google Drive PDF app",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
